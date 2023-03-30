@@ -37,6 +37,8 @@ userTable = pd.concat([userTable,testuser])
 loggedInUser='No One'
 #Base table for Bugs, to be replaced by loaded table if exists.
 loadedTable=pd.DataFrame(columns=['ID','Title','Description','Status','Date Created','Date Resolved','Assigned To'])
+#tableSplitToPages
+pagedTable = loadedTable.groupby(loadedTable.index//5)
 #Server class
 class Server: 
     #Init function. takes address and maps self.
@@ -89,7 +91,21 @@ class Server:
         except FileNotFoundError:
             #if you got here, the json doesn't exist so it was never generated. Thus the user either lost the table or doesn't have one. In this case return 1 to indicate a load failure due to not found. 
             print('Table file not found')
-            return 1 
+            return 1
+        #a function to create the pages of the table 
+    async def createPages(self):
+        pagedTable = loadedTable.groupby(loadedTable.index//5)
+        #a function to return the page count
+    async def enumeratePages(self):
+        return pagedTable.ngroups
+    #a function to return a specific page given a page number
+    async def returnPage(self,pageNo):
+        page=pagedTable.get_group(pageNo-1)
+    #
+    #TO DO: Decide where to send the page to the user. After first log-in perhaps? We will need to create the pages when their table is loaded.
+    #
+    #
+
     #All the juice happens in here. This is the handler/controller
     #We catch it all in a try so that if I fuck up it throws an error. So far so good.
     async def handle_client(self,reader,writer):
@@ -131,6 +147,8 @@ class Server:
                             tableLoadStatus=await self.loadBugTable(name)
                             #if the table loaded, indicated by returning 0, then form a message with a header, then tell the client by sending it. Refer to the header table at the top of the file.
                             if(tableLoadStatus==0):
+                                #split table if the table loaded?
+                                await self.createPages()
                                 resp="20,Table loaded!"
                                 writer.write(resp.encode())
                                 await writer.drain()
@@ -147,7 +165,7 @@ class Server:
                             #from here, the login process should be complete, as the user is logged in, and the table is loaded. We should update the user with the first ever page of their table by now. To be implemented.                              
                     else:
                         raise NotImplementedError
-                    await selfcreatePages()
+                    await self.createPages()
                 else:
                     #else if, the header is malformed or single messaged, for us it defaults to disconnect. But padding Data 1 and 2 stops crashes.
                     header=dataParts[0]
