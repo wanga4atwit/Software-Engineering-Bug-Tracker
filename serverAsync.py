@@ -6,6 +6,17 @@ import pandas as pd
 import random
 #Above here is all and any imports
 
+#Return Message Header Table
+# 20: These messages are status returns to the client. EG: Confirmations, Information to be relayed about process status.
+# 30: These messages are file returns. When we send "Pages" of the table to the user, they will be conveyed in this way. Thus the client can implement as neccesary.
+# More to be added if needed.
+
+#Recieved Message Header definition list
+#0=Login: The user client intends to log in a user. Treat the remaining data slots in the message as the log in info. Data slots can be expanded by the implementer if they need to carry more data, but we will have 2 slots.
+#1=Row Add: The user client intends to add rows to the table. Treat the first data slot as the table file to be decoded. 
+#2=Row Edit: The user client intends to edit rows to the table, treat the first data slot as a reference, then edit the row the reference row provides with the info.
+#3=Row Delete: The user client intends to delete a row from the table. Treat first data slot as the ID to the row they want to delete.
+
 #IP Address of the server
 SERVER_HOST = "0.0.0.0"
 #Port of the server
@@ -49,24 +60,34 @@ class Server:
     #In here, I check if the username sent is in the table, and if it is, if the password matches.
     #Yeah plain-text is unsafe but I have 14 days to complete this junk so what gives.
     async def loginProcess(self,user,passwd):
+        #if the username exists
         if(userTable['username'].isin([user]).any()==True):
+            #if the password to that username is right
             if((userTable.loc[userTable['username']==user,'password'].item())==passwd):
+                #Print a confirmation server side (debugging)
                 print("Username and password confirmed, logging in the user")
+                #Change the current user to the just logged in one.
                 self.loggedInUser=user
+                #return 0 to indicate a successful login.
                 return 0
             else:
+                #if the password check failed, print a password error, then return 2 to indicate a password error.
                 print("Password Error")
                 return 2
         else:
+            #if the username doesn't exist, print username error, then return 1 to indicate a username error (usually it just doesn't exist)
             print("Username Error")
             return 1
             #function to load the users table, to be called by the login function when it successfully logs in.
     async def loadBugTable(self,tablename):
+        #try to load a table using the provided users tableID from the login function that called it.
         try:
            filename=str(tablename)+'.json'
            loadedTable=pd.read_json(filename)
+           #return 0 if it loaded, to indicate a successful load
            return 0
         except FileNotFoundError:
+            #if you got here, the json doesn't exist so it was never generated. Thus the user either lost the table or doesn't have one. In this case return 1 to indicate a load failure due to not found. 
             print('Table file not found')
             return 1 
     #All the juice happens in here. This is the handler/controller
@@ -98,27 +119,35 @@ class Server:
                         #duplication for my sanity, whatever.
                         username=data1
                         password=data2
-                        #do the login process documented above. Ideally more stuff happens, not fully implemented.
+                        #Check if the login process returned 0 meaning a success!
                         if(await self.loginProcess(username,password)==0):
+                            #form a legit response message with header confirming the login
                             resp="20,Successfully logged in!"
+                            #send it
                             writer.write(resp.encode())
                             await writer.drain()
+                            #grab the id of the table the user has now that they are confirmed real. 
                             name=userTable.loc[userTable['username']==self.loggedInUser,'tableID'].item()
                             tableLoadStatus=await self.loadBugTable(name)
+                            #if the table loaded, indicated by returning 0, then form a message with a header, then tell the client by sending it. Refer to the header table at the top of the file.
                             if(tableLoadStatus==0):
                                 resp="20,Table loaded!"
                                 writer.write(resp.encode())
                                 await writer.drain()
+                                #else if no table was found, send a message telling this happened, and then send it.
                             elif(tableLoadStatus==1):
                                 resp="20,No Table Found A New Table Created!"
                                 writer.write(resp.encode())
                                 await writer.drain()
+                                #if for some reason the Table loading function fails catastrophically outside of either loading the table or not, then throw this error to the client. Do not ask me to fix.
                             else:
                                 resp="20,An Error Creating The Table Occured!"
                                 writer.write(resp.encode())
-                                await writer.drain()                             
+                                await writer.drain()
+                            #from here, the login process should be complete, as the user is logged in, and the table is loaded. We should update the user with the first ever page of their table by now. To be implemented.                              
                     else:
                         raise NotImplementedError
+                    await selfcreatePages()
                 else:
                     #else if, the header is malformed or single messaged, for us it defaults to disconnect. But padding Data 1 and 2 stops crashes.
                     header=dataParts[0]
@@ -141,13 +170,15 @@ class Server:
         finally:
             writer.close()
         #close our writer if the connection dropped, no need for it anymore.
+        #This function saves the table to JSON assuming the user disconnects in any way acceptable including just crashing out. If the server crashes then yikes bro, this isn't getting saved. 
     async def saveTheTable(self):
+        #Grab the ID of the table, 
         name=userTable.loc[userTable['username']==self.loggedInUser,'tableID'].item()
         filename=str(name)+'.json'
         #spits table to the working directory
         loadedTable.to_json(filename)
         self.loggedInUser='No One'
-    #Function to neatly close the server. I haven't implemented this yet anywhere but its here when we need it.
+    #Function to neatly close the server. This is technically implemented but never called under real circumstances.
     async def stop(self):
         await self.saveTheTable()
         print('Server Stopping')
