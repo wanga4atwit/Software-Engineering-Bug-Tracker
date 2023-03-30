@@ -19,12 +19,34 @@ class Client:
 
     async def connect(self):
         self.reader,self.writer=await asyncio.open_connection(*self.address)
+        await self.handle_server(self.reader,self.writer)
     
     async def send_message(self,message):
         self.writer.write(message.encode())
         await self.writer.drain()
-        response = await self.reader.read(BUFFER_SIZE)
-        print(f'Recieved Response: {response.decode()}')
+        
+    async def handle_server(self, reader, writer):
+        try:
+            await self.send_message('0,testUser,password1234')
+            while True:
+                data=await reader.read(BUFFER_SIZE)
+                receivedData=data.decode()
+                dataParts=receivedData.split(',')
+                if(len(dataParts)==2):
+                    header = dataParts[0]
+                    data1 = dataParts[1]
+                else:
+                    header=dataParts[0]
+                    data1='No Data'
+                if data:
+                    print(f'Recieved header: {header}, with data slot 1: {data1}')
+                else:
+                    print('Client disconnected either because it was manually shut down or an internal error.')
+                    break
+        except ConnectionError:
+            print('An Error has occured between the Server and Client')
+        finally:
+            await self.close()
 
     async def close(self):
         self.writer.close()
@@ -33,14 +55,7 @@ class Client:
 async def main():
     client=Client((SERVER_HOST,SERVER_PORT))
     await client.connect()
-    #Header definition list
-    #0=Login
-    #1=Row Add
-    #2=Row Edit
-    #3=Row Delete
-    await client.send_message('0,testUser,password1234')
-    await client.close()
-
+    #await client.close()
 if __name__ == '__main__':
     asyncio.run(main())
 

@@ -16,12 +16,16 @@ BUFFER_SIZE = 4096
 SEPARATOR = "<SEPARATOR>"
 #User-login table. Probably a better way to generate these but for now they are what they are.
 #Should replace this later if I have the time.
-userTable=pd.DataFrame(columns=['username','password','tableID'])
-idNo=random.randint(0,99999)
-testuser=pd.DataFrame([['testUser','password1234',idNo]],columns=['username','password','tableID'])
+userTable=pd.DataFrame(columns=['username','password','tableID','permLevel'])
+#idNo=random.randint(0,99999)
+idNo=9088
+testuser=pd.DataFrame([['testUser','password1234',idNo,3]],columns=['username','password','tableID','permLevel'])
 userTable = pd.concat([userTable,testuser])
 #TLDR, create a table with the columns for a user, make an id for their table, make the user, add the user.
-
+#loggedInUser for Session?
+loggedInUser='No One'
+#Base table for Bugs, to be replaced by loaded table if exists.
+loadedTable=pd.DataFrame(columns=['ID','Title','Description','Status','Date Created','Date Resolved','Assigned To'])
 #Server class
 class Server: 
     #Init function. takes address and maps self.
@@ -48,10 +52,23 @@ class Server:
         if(userTable['username'].isin([user]).any()==True):
             if((userTable.loc[userTable['username']==user,'password'].item())==passwd):
                 print("Username and password confirmed, logging in the user")
+                self.loggedInUser=user
+                return 0
             else:
                 print("Password Error")
+                return 2
         else:
             print("Username Error")
+            return 1
+            #function to load the users table, to be called by the login function when it successfully logs in.
+    async def loadBugTable(self,tablename):
+        try:
+           filename=str(tablename)+'.json'
+           loadedTable=pd.read_json(filename)
+           return 0
+        except FileNotFoundError:
+            print('Table file not found')
+            return 1 
     #All the juice happens in here. This is the handler/controller
     #We catch it all in a try so that if I fuck up it throws an error. So far so good.
     async def handle_client(self,reader,writer):
@@ -82,7 +99,26 @@ class Server:
                         username=data1
                         password=data2
                         #do the login process documented above. Ideally more stuff happens, not fully implemented.
-                        await self.loginProcess(username,password)
+                        if(await self.loginProcess(username,password)==0):
+                            resp="20,Successfully logged in!"
+                            writer.write(resp.encode())
+                            await writer.drain()
+                            name=userTable.loc[userTable['username']==self.loggedInUser,'tableID'].item()
+                            tableLoadStatus=await self.loadBugTable(name)
+                            if(tableLoadStatus==0):
+                                resp="20,Table loaded!"
+                                writer.write(resp.encode())
+                                await writer.drain()
+                            elif(tableLoadStatus==1):
+                                resp="20,No Table Found A New Table Created!"
+                                writer.write(resp.encode())
+                                await writer.drain()
+                            else:
+                                resp="20,An Error Creating The Table Occured!"
+                                writer.write(resp.encode())
+                                await writer.drain()                             
+                    else:
+                        raise NotImplementedError
                 else:
                     #else if, the header is malformed or single messaged, for us it defaults to disconnect. But padding Data 1 and 2 stops crashes.
                     header=dataParts[0]
@@ -92,20 +128,28 @@ class Server:
                     #Debug message, likely to dissapear in the future.
                     print(f'Recieved header: {header}, with data slot 1: {data1} and data slot 2: {data2}')
                     #Sends the data right back to the client. Debugging for me.
-                    writer.write(data)
+                    #writer.write(data)
                     #Wait for the writer to finish
-                    await writer.drain()
+                    #await writer.drain()
                 else:
                     #if the message was that malformed boi above, the client likely disconnected. Quit the handler.
                     print('Client disconnected')
+                    await self.saveTheTable()
                     break
         except ConnectionResetError:
             print('Client connection reset')
         finally:
             writer.close()
         #close our writer if the connection dropped, no need for it anymore.
+    async def saveTheTable(self):
+        name=userTable.loc[userTable['username']==self.loggedInUser,'tableID'].item()
+        filename=str(name)+'.json'
+        #spits table to the working directory
+        loadedTable.to_json(filename)
+        self.loggedInUser='No One'
     #Function to neatly close the server. I haven't implemented this yet anywhere but its here when we need it.
     async def stop(self):
+        await self.saveTheTable()
         print('Server Stopping')
         self.server.close()
         await self.server.wait_closed()
