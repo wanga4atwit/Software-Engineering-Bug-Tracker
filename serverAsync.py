@@ -4,6 +4,7 @@ import os
 import asyncio
 import pandas as pd
 import random
+import time
 #Above here is all and any imports
 
 #Return Message Header Table
@@ -22,7 +23,7 @@ SERVER_HOST = "0.0.0.0"
 #Port of the server
 SERVER_PORT = 8000
 # receive 4096 bytes each time
-BUFFER_SIZE = 4096
+BUFFER_SIZE = 4096*4096
 #I was going to use this seperator and then forgot and declared a new one, whatever.
 SEPARATOR = "<SEPARATOR>"
 #User-login table. Probably a better way to generate these but for now they are what they are.
@@ -100,7 +101,21 @@ class Server:
         return pagedTable.ngroups
     #a function to return a specific page given a page number
     async def returnPage(self,pageNo):
-        page=pagedTable.get_group(pageNo-1)
+        #if there are no groups at all, indicating an empty table or table that doesn't meet the criteria,
+        #send the whole thing because it's probably really small?
+        if(pagedTable.ngroups==0):
+            return loadedTable
+        #else send the page specified because it will exist I think to be bug tested later
+        else:
+            return pagedTable.get_group((pageNo-1))
+    #Prepares the json page to be sent.
+    async def prepareStartPage(self):
+        await self.createPages()
+        noOfPages=await self.enumeratePages()
+        page=await self.returnPage(1)
+        jsonPage=page.to_json()
+        return jsonPage
+
     #
     #TO DO: Decide where to send the page to the user. After first log-in perhaps? We will need to create the pages when their table is loaded.
     #
@@ -116,7 +131,7 @@ class Server:
                 #decode the message
                 message = data.decode()
                 #Split the data, messages to our API will have to be compliant to this. I'll document it later.
-                dataParts = message.split(',')
+                dataParts = message.split(SEPARATOR)
                 #Header definition list
                 #0=Login
                 #1=Row Add
@@ -138,7 +153,7 @@ class Server:
                         #Check if the login process returned 0 meaning a success!
                         if(await self.loginProcess(username,password)==0):
                             #form a legit response message with header confirming the login
-                            resp="20,Successfully logged in!"
+                            resp="20<SEPARATOR>Successfully logged in!"
                             #send it
                             writer.write(resp.encode())
                             await writer.drain()
@@ -148,24 +163,27 @@ class Server:
                             #if the table loaded, indicated by returning 0, then form a message with a header, then tell the client by sending it. Refer to the header table at the top of the file.
                             if(tableLoadStatus==0):
                                 #split table if the table loaded?
-                                await self.createPages()
-                                resp="20,Table loaded!"
+                                #send the table
+                                page=await self.prepareStartPage()
+                                resp=f"30<SEPARATOR>{page}"
                                 writer.write(resp.encode())
                                 await writer.drain()
                                 #else if no table was found, send a message telling this happened, and then send it.
+                                #also send the table
                             elif(tableLoadStatus==1):
-                                resp="20,No Table Found A New Table Created!"
+                                page=await self.prepareStartPage()
+                                resp=f"30<SEPARATOR>{page}"
                                 writer.write(resp.encode())
                                 await writer.drain()
                                 #if for some reason the Table loading function fails catastrophically outside of either loading the table or not, then throw this error to the client. Do not ask me to fix.
+                                #don't send shit because there is nothing to send.
                             else:
-                                resp="20,An Error Creating The Table Occured!"
+                                resp="20<SEPARATOR>An Error Creating The Table Occured!"
                                 writer.write(resp.encode())
                                 await writer.drain()
-                            #from here, the login process should be complete, as the user is logged in, and the table is loaded. We should update the user with the first ever page of their table by now. To be implemented.                              
+                            #from here, the login process should be complete, as the user is logged in, and the table is loaded. We should update the user with the first ever page of their table by now. To be implemented. 
                     else:
                         raise NotImplementedError
-                    await self.createPages()
                 else:
                     #else if, the header is malformed or single messaged, for us it defaults to disconnect. But padding Data 1 and 2 stops crashes.
                     header=dataParts[0]
