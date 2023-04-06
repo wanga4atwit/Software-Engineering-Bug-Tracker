@@ -11,6 +11,7 @@ import json
 #Return Message Header Table
 # 20: These messages are status returns to the client. EG: Confirmations, Information to be relayed about process status.
 # 21: log in errors
+# 22: log in success 
 # 30: These messages are file returns. When we send "Pages" of the table to the user, they will be conveyed in this way. Thus the client can implement as neccesary.
 # More to be added if needed.
 
@@ -160,7 +161,7 @@ class Server:
                         #Check if the login process returned 0 meaning a success!
                         if(loginResult==0):
                             #form a legit response message with header confirming the login
-                            resp="20<SEPARATOR>Successfully logged in!"
+                            resp="22<SEPARATOR>Successfully logged in!"
                             #send it
                             writer.write(resp.encode())
                             await writer.drain()
@@ -198,8 +199,24 @@ class Server:
                         print('Adding Row To Table')
                         jsonTable=json.loads(data1)
                         tempTable=pd.read_json(json.dumps(jsonTable))
+                        randID=random.randint(0,99999)
+                        while self.loadedTable['ID'].isin([randID]).any():
+                            print("ID already exists")
+                            randID=random.randint(0,99999)
+                        tempTable.loc[0,'ID']=randID
                         print(tempTable)
                         self.loadedTable=pd.concat([self.loadedTable,tempTable],ignore_index=True)
+                        print(self.loadedTable)
+                        page=await self.updatePages()
+                        resp=f"30<SEPARATOR>{page}"
+                        writer.write(resp.encode())
+                        await writer.drain()
+                    elif(header=='2'):
+                        print('Editing Row')
+                        jsonTable=json.loads(data1)
+                        tempTable=pd.read_json(json.dumps(jsonTable))
+                        tempTableID=tempTable.loc[tempTable.index[0],'ID'].item()
+                        self.loadedTable.loc[self.loadedTable['ID']==tempTableID]=tempTable
                         print(self.loadedTable)
                         page=await self.updatePages()
                         resp=f"30<SEPARATOR>{page}"
