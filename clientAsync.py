@@ -14,9 +14,7 @@ SERVER_PORT = 8000
 BUFFER_SIZE = 4096*4096
 SEPARATOR = "<SEPARATOR>"
 tempTable = None
-#BIG BOILER PLATE CODE. Doesn't need anything the server doesn't already document. 
-#To be edited when the serverside functions are done being implemented. 
-#Testing each using main on a case by case basis for now. 
+#TO DO: Document this monster.
 class Client: 
     def __init__(self, address):
         self.address=address
@@ -91,7 +89,10 @@ class Client:
 
         rowJson=rowToEdit.to_json()
         await self.sendPage(2,rowJson)
-
+    async def deleteRowCLI(self):
+        ticketToDelete=input("Please enter the ID of the ticket you wish to delete.\n")
+        resp=(f'3<SEPARATOR>{ticketToDelete}<SEPARATOR>{None}')
+        await self.send_message(resp)
     async def inputCLI(self):
         loop=asyncio.get_running_loop()
         with concurrent.futures.ThreadPoolExecutor() as pool:
@@ -110,7 +111,7 @@ class Client:
                 elif(int(choice)==2):
                     await self.editBugCLI()
                 elif(int(choice)==3):
-                    None
+                    await self.deleteRowCLI()
                 elif(int(choice)==4):
                     await self.close()
                     break

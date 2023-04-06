@@ -222,6 +222,17 @@ class Server:
                         resp=f"30<SEPARATOR>{page}"
                         writer.write(resp.encode())
                         await writer.drain()
+                    elif(header=='3'):
+                        print('Deleting Row')
+                        idToDel=int(data1)
+                        if idToDel in self.loadedTable['ID'].values:
+                            self.loadedTable=self.loadedTable[self.loadedTable['ID']!=idToDel]
+                        print(self.loadedTable)
+                        page=await self.updatePages()
+                        resp=f"30<SEPARATOR>{page}"
+                        writer.write(resp.encode())
+                        await writer.drain()
+
                     else:
                         raise NotImplementedError
                 else:
