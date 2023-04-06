@@ -4,12 +4,13 @@ import os
 import asyncio
 import pandas as pd
 import random
-import time
+from datetime import date
 import json
 #Above here is all and any imports
 
 #Return Message Header Table
 # 20: These messages are status returns to the client. EG: Confirmations, Information to be relayed about process status.
+# 21: log in errors
 # 30: These messages are file returns. When we send "Pages" of the table to the user, they will be conveyed in this way. Thus the client can implement as neccesary.
 # More to be added if needed.
 
@@ -34,13 +35,6 @@ userTable=pd.DataFrame(columns=['username','password','tableID','permLevel'])
 idNo=9088
 testuser=pd.DataFrame([['testUser','password1234',idNo,3]],columns=['username','password','tableID','permLevel'])
 userTable = pd.concat([userTable,testuser])
-#TLDR, create a table with the columns for a user, make an id for their table, make the user, add the user.
-#loggedInUser for Session?
-loggedInUser='No One'
-#Base table for Bugs, to be replaced by loaded table if exists.
-loadedTable=pd.DataFrame(columns=['ID','Title','Description','Status','Date Created','Date Resolved','Assigned To'])
-#tableSplitToPages
-pagedTable = loadedTable.groupby(loadedTable.index//5)
 #Server class
 class Server: 
     #Init function. takes address and maps self.
@@ -64,30 +58,32 @@ class Server:
     #In here, I check if the username sent is in the table, and if it is, if the password matches.
     #Yeah plain-text is unsafe but I have 14 days to complete this junk so what gives.
     async def loginProcess(self,user,passwd):
-        #if the username exists
-        if(userTable['username'].isin([user]).any()==True):
+        try:#if the username exists
+            if(userTable['username'].isin([user]).any()==True):
             #if the password to that username is right
-            if((userTable.loc[userTable['username']==user,'password'].item())==passwd):
+                if((userTable.loc[userTable['username']==user,'password'].item())==passwd):
                 #Print a confirmation server side (debugging)
-                print("Username and password confirmed, logging in the user")
+                    print("Username and password confirmed, logging in the user")
                 #Change the current user to the just logged in one.
-                self.loggedInUser=user
+                    self.loggedInUser=user
                 #return 0 to indicate a successful login.
-                return 0
-            else:
+                    return 0
+                else:
                 #if the password check failed, print a password error, then return 2 to indicate a password error.
-                print("Password Error")
-                return 2
-        else:
+                    print("Password Error")
+                    return 2
+            else:
             #if the username doesn't exist, print username error, then return 1 to indicate a username error (usually it just doesn't exist)
-            print("Username Error")
+                print("Username Error")
+                return 1
+        except NameError:
             return 1
             #function to load the users table, to be called by the login function when it successfully logs in.
     async def loadBugTable(self,tablename):
         #try to load a table using the provided users tableID from the login function that called it.
         try:
            filename=str(tablename)+'.json'
-           loadedTable=pd.read_json(filename)
+           self.loadedTable=pd.read_json(filename)
            #return 0 if it loaded, to indicate a successful load
            return 0
         except FileNotFoundError:
@@ -96,19 +92,19 @@ class Server:
             return 1
         #a function to create the pages of the table 
     async def createPages(self):
-        pagedTable = loadedTable.groupby(loadedTable.index//5)
+        self.pagedTable = self.loadedTable.groupby(self.loadedTable.index//5)
         #a function to return the page count
     async def enumeratePages(self):
-        return pagedTable.ngroups
+        return self.pagedTable.ngroups
     #a function to return a specific page given a page number
     async def returnPage(self,pageNo):
         #if there are no groups at all, indicating an empty table or table that doesn't meet the criteria,
         #send the whole thing because it's probably really small?
-        if(pagedTable.ngroups==0):
-            return loadedTable
+        if(self.pagedTable.ngroups==0):
+            return self.loadedTable
         #else send the page specified because it will exist I think to be bug tested later
         else:
-            return pagedTable.get_group((pageNo-1))
+            return self.pagedTable.get_group((pageNo-1))
     #Prepares the json page to be sent.
     async def prepareStartPage(self):
         await self.createPages()
@@ -116,7 +112,12 @@ class Server:
         page=await self.returnPage(1)
         jsonPage=page.to_json()
         return jsonPage
-
+    async def updatePages(self):
+        await self.createPages()
+        self.noOfPages=await self.enumeratePages()
+        page=await self.returnPage(1)
+        jsonPage=page.to_json()
+        return jsonPage       
     #
     #TO DO: Decide where to send the page to the user. After first log-in perhaps? We will need to create the pages when their table is loaded.
     #
@@ -126,6 +127,11 @@ class Server:
     #We catch it all in a try so that if I fuck up it throws an error. So far so good.
     async def handle_client(self,reader,writer):
         try:
+            self.loadedTable=pd.DataFrame(columns=['ID','Title','Description','Status','Date Created','Date Resolved','Assigned To'])
+            self.pagedTable = self.loadedTable.groupby(self.loadedTable.index//5)
+            self.noOfPages=0
+            self.currentPage=0
+            #starting table.
             while True:
                 #read the data into the buffer.
                 data = await reader.read(BUFFER_SIZE)
@@ -138,7 +144,6 @@ class Server:
                 #1=Row Add
                 #2=Row Edit
                 #3=Row Delete
-
                 #if the message is 3 parted (Correctly formed), proceed, if not, then the Client will disconnect.
                 #Clients should pad the additonal data slots with 0.
                 if(len(dataParts)==3):
@@ -151,8 +156,9 @@ class Server:
                         #duplication for my sanity, whatever.
                         username=data1
                         password=data2
+                        loginResult = await self.loginProcess(username,password)
                         #Check if the login process returned 0 meaning a success!
-                        if(await self.loginProcess(username,password)==0):
+                        if(loginResult==0):
                             #form a legit response message with header confirming the login
                             resp="20<SEPARATOR>Successfully logged in!"
                             #send it
@@ -183,13 +189,22 @@ class Server:
                                 writer.write(resp.encode())
                                 await writer.drain()
                             #from here, the login process should be complete, as the user is logged in, and the table is loaded. We should update the user with the first ever page of their table by now. To be implemented. 
+                        elif(loginResult==1):
+                            resp="21<SEPARATOR>Log-In Error"
+                            #send it
+                            writer.write(resp.encode())
+                            await writer.drain()
                     elif(header=='1'):
                         print('Adding Row To Table')
                         jsonTable=json.loads(data1)
                         tempTable=pd.read_json(json.dumps(jsonTable))
                         print(tempTable)
-                        loadedTable=pd.concat(loadedTable,tempTable)
-                        print(loadedTable)
+                        self.loadedTable=pd.concat([self.loadedTable,tempTable],ignore_index=True)
+                        print(self.loadedTable)
+                        page=await self.updatePages()
+                        resp=f"30<SEPARATOR>{page}"
+                        writer.write(resp.encode())
+                        await writer.drain()
                     else:
                         raise NotImplementedError
                 else:
@@ -216,12 +231,15 @@ class Server:
         #close our writer if the connection dropped, no need for it anymore.
         #This function saves the table to JSON assuming the user disconnects in any way acceptable including just crashing out. If the server crashes then yikes bro, this isn't getting saved. 
     async def saveTheTable(self):
-        #Grab the ID of the table, 
-        name=userTable.loc[userTable['username']==self.loggedInUser,'tableID'].item()
-        filename=str(name)+'.json'
-        #spits table to the working directory
-        loadedTable.to_json(filename)
-        self.loggedInUser='No One'
+        #Grab the ID of the table,
+        try:
+            name=userTable.loc[userTable['username']==self.loggedInUser,'tableID'].item()
+            filename=str(name)+'.json'
+            #spits table to the working directory
+            self.loadedTable.to_json(filename)
+            self.loggedInUser='No One'
+        except AttributeError:
+            return 1
     #Function to neatly close the server. This is technically implemented but never called under real circumstances.
     async def stop(self):
         await self.saveTheTable()
