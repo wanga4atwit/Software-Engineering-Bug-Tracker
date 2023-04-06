@@ -5,6 +5,7 @@ import asyncio
 import pandas as pd
 import random
 import time
+import json
 #Above here is all and any imports
 
 #Return Message Header Table
@@ -182,6 +183,13 @@ class Server:
                                 writer.write(resp.encode())
                                 await writer.drain()
                             #from here, the login process should be complete, as the user is logged in, and the table is loaded. We should update the user with the first ever page of their table by now. To be implemented. 
+                    elif(header=='1'):
+                        print('Adding Row To Table')
+                        jsonTable=json.loads(data1)
+                        tempTable=pd.read_json(json.dumps(jsonTable))
+                        print(tempTable)
+                        loadedTable=pd.concat(loadedTable,tempTable)
+                        print(loadedTable)
                     else:
                         raise NotImplementedError
                 else:
