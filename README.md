@@ -1,5 +1,6 @@
 # Software-Engineering-Bug-Tracker
 Bug Tracker for Software Engineering Project - Also known as BugTrackerNeo
+![ezgif com-video-to-gif](https://user-images.githubusercontent.com/54987160/231316216-c94a06ff-558d-4df6-8d02-621c8a64b24e.gif)
 
 
 ## Features
